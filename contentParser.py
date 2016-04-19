@@ -30,53 +30,22 @@ class Extractor:
         minSimilarityScore=0.2
 
     def extactWordList(self,path):
-        parsed = parser.from_file(path)
-        content = parsed['content']
-        print content
+        #parsed = parser.from_file(path)
+        #fileContent = parsed['content']
+        file = open(path)
+        fileContent = file.read().replace('\n', ' ')
+        print fileContent
+        fileContent=fileContent.decode('utf-8','ignore').encode("utf-8")
+        fileContent = re.sub(r"\n", " ", fileContent)
+        fileContent = re.sub(r"\t", " ", fileContent)
+        self.createKeyValue(fileContent)
 
-        contentWordList = content.split()
-        #print "number of stopwords:",len(stopwords.words('english'))
-        #print "Length of original wordList:",len(contentWordList)
-        filteredWordsList = self.removeStopWords(contentWordList)
-        #print "Length of the filteredWordsList:",len(filteredWordsList)
-        #stemmedWordList = self.stemmingWordList(filteredWordsList)
-        #wordListCount = Counter(stemmedWordList)
-        #print wordListCount.most_common(int(wordListSize))
-        filteredWordsList = self.removeSynonyms(filteredWordsList)
-        similarityDic = self.similarityScore(filteredWordsList)
-
-        i=0.1
-        xAxis = []
-        yAxis = []
-        while i <= 1.0:
-            xAxis.append(i);
-            yAxis.append(self.disjointGraph(similarityDic,i))
-            i = i + 0.1
-
-
-
-        y_mean = [np.mean(yAxis) for i in xAxis]
-        y_std_lower = [(self.mean(yAxis)-self.stddev(yAxis)) for i in xAxis]
-        y_std_upper = [(self.mean(yAxis)+self.stddev(yAxis)) for i in xAxis]
-        fig,ax = plt.subplots()
-        data_line = ax.plot(xAxis,yAxis, label='Data', marker='o')
-        mean_line = ax.plot(xAxis,y_mean, label='Mean', linestyle='--')
-        std_line_lower = ax.plot(xAxis,y_std_lower,label='Standard Deviation',linestyle='--',color='red')
-        std_line_upper = ax.plot(xAxis,y_std_upper,label='Standard Deviation',linestyle='--',color='red')
-        # Make a legend
-        legend = ax.legend(loc='upper right')
-        peak_value = max(yAxis)
-        minSimilarityScore = xAxis[yAxis.index(peak_value)]
-        print minSimilarityScore
-        self.graphConstruct(similarityDic)
-        plt.show()
-
-        return len(filteredWordsList)
 
     def contextBuilder(self,content):
 
         graphDic = []
         contentWordList = content.split()
+        print contentWordList
         filteredWordsList = self.removeStopWords(contentWordList)
         #stemmedWordList = self.stemmingWordList(filteredWordsList)
         filteredWordsList = self.removeSynonyms(filteredWordsList)
@@ -95,36 +64,23 @@ class Extractor:
 
         peak_value = max(minSimilarityGraphScores)
         optimalScore = minSimilarityScores[minSimilarityGraphScores.index(peak_value)]
-        optimalGraphs = minSimilarityGraphScores[minSimilarityGraphScores.index(peak_value)]
+        optimalGraphs = minSimilarityScoreGraphs[minSimilarityGraphScores.index(peak_value)]
 
         return optimalGraphs,optimalScore
-
-    def constructPlot(self,yAxis,xAxis):
-
-        y_mean = [np.mean(yAxis) for i in xAxis]
-        y_std_lower = [(self.mean(yAxis)-self.stddev(yAxis)) for i in xAxis]
-        y_std_upper = [(self.mean(yAxis)+self.stddev(yAxis)) for i in xAxis]
-        fig,ax = plt.subplots()
-        data_line = ax.plot(xAxis,yAxis, label='Data', marker='o')
-        mean_line = ax.plot(xAxis,y_mean, label='Mean', linestyle='--')
-        std_line_lower = ax.plot(xAxis,y_std_lower,label='Standard Deviation',linestyle='--',color='red')
-        std_line_upper = ax.plot(xAxis,y_std_upper,label='Standard Deviation',linestyle='--',color='red')
-
-        # Make a legend
-        legend = ax.legend(loc='upper right')
-        plt.show()
-
 
     def createKeyValue(self,text):
         pattern = re.compile(r'<key>(.*?)</key>:<property>(.*?)</property>')
         matches = pattern.findall(text)
         result = []
+        print matches
 
         for element in matches:
             keyValueGraph = {}
             keyValueGraph['key'] = element[0]
-            keyValueGraph['contextGraph'],keyValueGraph['graphScore'] = self.contextBuilder(element[1]) #pass the value.
+            keyValueGraph['contextGraph'],keyValueGraph['graphScore'] = self.contextBuilder(element[1]) #value.
+            result.append(keyValueGraph)
 
+        print result
 
 
     def removeDuplicates(self,wordList):
@@ -134,8 +90,8 @@ class Extractor:
     def removeStopWords(self,wordList):
     	newList = []
     	for word in wordList:
-    		word = word.lower()
-    		if word not in stopwords.words('english') and not word.startswith('http://'):
+            word = word.lower()
+            if word not in stopwords.words('english') and not word.startswith('http://'):
     			if re.match('[_+\-.,!@#$%^&*()?:;\/|<>]|(([a-zA-Z]+?)[_+\-.,!@#$%^?&*():;\/|<>])(|\s|$)',word):
 	    			punctuations = '''!()-[]{};?:'"\,<>./?@#$%^&*_~'''
 	    			no_punct=""
@@ -182,6 +138,9 @@ class Extractor:
         minSimilarityScoreGraph = []
         minSimilarityScoreDic = {}
         tempSimilarityJson = {key: value for key, value in similarityJson.items() if value > minSimilarityScore}
+        if len(tempSimilarityJson) == 0:
+            print "Graph Score with minSimilarityScore:",minSimilarityScore," is:0"
+            return 0,[]
         for key,value in tempSimilarityJson.iteritems():
             if(value > minSimilarityScore):
                 words = key.split("-")
@@ -293,6 +252,21 @@ class Extractor:
                 else:
                     color = 'green'
                 graph.create(rel(node1,value,node2,{'color':color,'score':value}));
+
+    def constructPlot(self,yAxis,xAxis):
+
+        y_mean = [np.mean(yAxis) for i in xAxis]
+        y_std_lower = [(self.mean(yAxis)-self.stddev(yAxis)) for i in xAxis]
+        y_std_upper = [(self.mean(yAxis)+self.stddev(yAxis)) for i in xAxis]
+        fig,ax = plt.subplots()
+        data_line = ax.plot(xAxis,yAxis, label='Data', marker='o')
+        mean_line = ax.plot(xAxis,y_mean, label='Mean', linestyle='--')
+        std_line_lower = ax.plot(xAxis,y_std_lower,label='Standard Deviation',linestyle='--',color='red')
+        std_line_upper = ax.plot(xAxis,y_std_upper,label='Standard Deviation',linestyle='--',color='red')
+
+        # Make a legend
+        legend = ax.legend(loc='upper right')
+        plt.show()
 
 
 
