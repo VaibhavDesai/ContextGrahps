@@ -3,6 +3,8 @@ import tika
 import sys
 from tika import parser
 from collections import Counter
+import time
+import os
 
 from nltk.corpus import stopwords
 from nltk.stem.snowball import SnowballStemmer
@@ -28,60 +30,27 @@ class Extractor:
         graph = Graph("http://localhost:7474/db/data/")
         global minSimilarityScore
         minSimilarityScore=0.2
+        global fileName
 
     def extactWordList(self,path):
         #parsed = parser.from_file(path)
         #fileContent = parsed['content']
+        fileName = os.path.basename(path)
         file = open(path)
+
         fileContent = file.read().replace('\n', ' ')
-        print fileContent
-        fileContent=fileContent.decode('utf-8','ignore').encode("utf-8")
+        print "The words in file are :",len(re.findall(r'\w+', fileContent))
+        fileContent = fileContent.decode('utf-8','ignore')
         fileContent = re.sub(r"\n", " ", fileContent)
         fileContent = re.sub(r"\t", " ", fileContent)
         self.createKeyValue(fileContent)
 
-
-    def contextBuilder(self,content):
-
-        graphDic = []
+    def preprocessing(self,content):
         contentWordList = content.split()
-        print contentWordList
         filteredWordsList = self.removeStopWords(contentWordList)
-        #stemmedWordList = self.stemmingWordList(filteredWordsList)
+        #filteredWordsList = self.stemmingWordList(filteredWordsList)
         filteredWordsList = self.removeSynonyms(filteredWordsList)
-        similarityDic = self.similarityScore(filteredWordsList)
-
-        i=0.1
-        minSimilarityScores = []
-        minSimilarityScoreGraphs = []
-        minSimilarityGraphScores = []
-        while i <= 1.0:
-            minSimilarityScores.append(i);
-            score , graphs = self.disjointGraph(similarityDic,i)
-            minSimilarityScoreGraphs.append(graphs)
-            minSimilarityGraphScores.append(score)
-            i = i + 0.1
-
-        peak_value = max(minSimilarityGraphScores)
-        optimalScore = minSimilarityScores[minSimilarityGraphScores.index(peak_value)]
-        optimalGraphs = minSimilarityScoreGraphs[minSimilarityGraphScores.index(peak_value)]
-
-        return optimalGraphs,optimalScore
-
-    def createKeyValue(self,text):
-        pattern = re.compile(r'<key>(.*?)</key>:<property>(.*?)</property>')
-        matches = pattern.findall(text)
-        result = []
-        print matches
-
-        for element in matches:
-            keyValueGraph = {}
-            keyValueGraph['key'] = element[0]
-            keyValueGraph['contextGraph'],keyValueGraph['graphScore'] = self.contextBuilder(element[1]) #value.
-            result.append(keyValueGraph)
-
-        print result
-
+        return filteredWordsList
 
     def removeDuplicates(self,wordList):
     	wordSet =  set(wordList)
@@ -91,7 +60,7 @@ class Extractor:
     	newList = []
     	for word in wordList:
             word = word.lower()
-            if word not in stopwords.words('english') and not word.startswith('http://'):
+            if word not in stopwords.words('english') and not word.startswith('http://') and not word.isdigit():
     			if re.match('[_+\-.,!@#$%^&*()?:;\/|<>]|(([a-zA-Z]+?)[_+\-.,!@#$%^?&*():;\/|<>])(|\s|$)',word):
 	    			punctuations = '''!()-[]{};?:'"\,<>./?@#$%^&*_~'''
 	    			no_punct=""
@@ -133,13 +102,58 @@ class Extractor:
 
         return similarityJson
 
+
+    def createKeyValue(self,text):
+        pattern = re.compile(r'<key>(.*?)</key>:<property>(.*?)</property>')
+        matches = pattern.findall(text)
+        result = []
+        for element in matches:
+            keyValueGraph = {}
+            keyValueGraph['key'] = element[0]
+            keyValueGraph['contextGraph'],keyValueGraph['graphScore'],keyValueGraph['similarityDic'] = self.contextBuilder(element[1]) #value.
+            result.append(keyValueGraph)
+
+        for element in result:
+            #self.graphConstruct(element)
+            print element
+
+    def contextBuilder(self,content):
+
+        graphDic = []
+        filteredWordsList = self.preprocessing(content)
+        tempSimilarityDic = self.similarityScore(filteredWordsList)
+
+        i=0.1
+        minSimilarityScores = []
+        minSimilarityScoreGraphs = []
+        minSimilarityGraphScores = []
+        while i <= 1.0:
+            minSimilarityScores.append(i);
+            score , graphs = self.disjointGraph(tempSimilarityDic,i)
+            minSimilarityScoreGraphs.append(graphs)
+            minSimilarityGraphScores.append(score)
+            i = i + 0.1
+
+        peak_value = max(minSimilarityGraphScores)
+        optimalScore = minSimilarityScores[minSimilarityGraphScores.index(peak_value)]
+        optimalGraphs = minSimilarityScoreGraphs[minSimilarityGraphScores.index(peak_value)]
+
+        similarityDic = {}
+
+        for key,value in tempSimilarityDic:
+            if value is not None:
+                similarityDic[key] = value
+
+        print "count is :",len(similarityDic)
+        return optimalGraphs,optimalScore,similarityDic
+
     def disjointGraph(self,similarityJson,minSimilarityScore):
         keyWordList = []
         minSimilarityScoreGraph = []
         minSimilarityScoreDic = {}
         tempSimilarityJson = {key: value for key, value in similarityJson.items() if value > minSimilarityScore}
         if len(tempSimilarityJson) == 0:
-            print "Graph Score with minSimilarityScore:",minSimilarityScore," is:0"
+            #print "Graph Score with minSimilarityScore:",minSimilarityScore," is:0"
             return 0,[]
         for key,value in tempSimilarityJson.iteritems():
             if(value > minSimilarityScore):
@@ -161,7 +175,7 @@ class Extractor:
             else:
                 break
 
-        print "Graph Score with minSimilarityScore:",minSimilarityScore," is:",(graphScore/numberOfDisjointGraphs)
+        #print "Graph Score with minSimilarityScore:",minSimilarityScore," is:",(graphScore/numberOfDisjointGraphs)
         return (graphScore/numberOfDisjointGraphs),minSimilarityScoreGraph
 
     def connectedWords(self,tempSimilarityJson,word):
@@ -189,8 +203,6 @@ class Extractor:
                 break
 
             word = queue.popleft()
-
-        print otherWordsList
 
         i=0
         possibleRelations = 0
@@ -227,14 +239,28 @@ class Extractor:
 
         return sqrt(variance)
 
-    def graphConstruct(self,similarityJson):
+    def graphConstruct(self,item):
 
-        graph.delete_all()
-        #for key, value in similarityJson.iteritems():
-        #    if(value > minSimilarityScore):
-                #print key ,'-',value
+        similarityDic = item['similarityDic']
+        minSimilarityScore = item['graphScore']
+        title = item['key']
+        #source = fileName
+        contextGraph = item['contextGraph']
+        similarityJson = {}
+        score =0
+        for disjointGraph in contextGraph:
+            for i in range(0,len(disjointGraph)-1):
+                for j in range(i+1,len(disjointGraph)):
+                    if similarityDic.get(disjointGraph[i]+"-"+disjointGraph[j], 0) > 0:
+                        score = similarityDic.get(disjointGraph[i]+"-"+disjointGraph[j], 0)
+                        similarityJson[disjointGraph[i]+"-"+disjointGraph[j]] = score
+                    elif similarityDic.get((disjointGraph[j]+"-"+disjointGraph[i]), 0)>0:
+                        score = similarityDic.get((disjointGraph[j]+"-"+disjointGraph[i]), 0)
+                        similarityJson[disjointGraph[j]+"-"+disjointGraph[i]] = score
 
-        for key, value in similarityJson.iteritems():
+        print title, "----------------------"
+
+        '''for key, value in similarityJson.iteritems():
             if(value > minSimilarityScore):
                 words = key.split("-")
                 node1 = graph.find_one("testing",property_key='name',property_value=words[0])
@@ -252,7 +278,7 @@ class Extractor:
                 else:
                     color = 'green'
                 graph.create(rel(node1,value,node2,{'color':color,'score':value}));
-
+        '''
     def constructPlot(self,yAxis,xAxis):
 
         y_mean = [np.mean(yAxis) for i in xAxis]
@@ -269,10 +295,10 @@ class Extractor:
         plt.show()
 
 
-
-
 extractor = Extractor()
 if(len(sys.argv)<2):
-    print "Enter file path and wordListCount\n"
+    print "Enter file path\n"
 else:
-    print extractor.extactWordList(sys.argv[1])
+    start = time.clock()
+    extractor.extactWordList(sys.argv[1])
+    print "Time taken is:",(time.clock() - start)
